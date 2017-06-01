@@ -27,6 +27,7 @@ import (
 	"github.com/docker/go-events"
 	"github.com/docker/swarmkit/api"
 	"github.com/docker/swarmkit/ca"
+	"github.com/docker/swarmkit/ca/pkcs8"
 	cautils "github.com/docker/swarmkit/ca/testutils"
 	"github.com/docker/swarmkit/connectionbroker"
 	"github.com/docker/swarmkit/identity"
@@ -196,9 +197,9 @@ func TestGetLocalRootCAInvalidKey(t *testing.T) {
 	require.NoError(t, ca.SaveRootCA(rootCA, paths.RootCA))
 
 	// Write some garbage to the root key - this will cause the loading to fail
-	require.NoError(t, ioutil.WriteFile(paths.RootCA.Key, []byte(`-----BEGIN EC PRIVATE KEY-----\n
+	require.NoError(t, ioutil.WriteFile(paths.RootCA.Key, []byte(`-----BEGIN PRIVATE KEY-----\n
 some random garbage\n
------END EC PRIVATE KEY-----`), 0600))
+-----END PRIVATE KEY-----`), 0600))
 
 	_, err = ca.GetLocalRootCA(paths.RootCA)
 	require.Error(t, err)
@@ -216,8 +217,7 @@ func TestEncryptECPrivateKey(t *testing.T) {
 
 	keyBlock, _ := pem.Decode(encryptedKey)
 	assert.NotNil(t, keyBlock)
-	assert.Equal(t, keyBlock.Headers["Proc-Type"], "4,ENCRYPTED")
-	assert.Contains(t, keyBlock.Headers["DEK-Info"], "AES-256-CBC")
+	assert.True(t, pkcs8.IsEncryptedPEMBlock(keyBlock))
 }
 
 func TestParseValidateAndSignCSR(t *testing.T) {
@@ -1324,7 +1324,9 @@ func TestNewRootCAWithPassphrase(t *testing.T) {
 	assert.NotEqual(t, rcaSigner.Key, nrcaSigner.Key)
 	assert.Equal(t, rootCA.Certs, newRootCA.Certs)
 	assert.NotContains(t, string(rcaSigner.Key), string(nrcaSigner.Key))
-	assert.Contains(t, string(nrcaSigner.Key), "Proc-Type: 4,ENCRYPTED")
+	keyBlock, _ := pem.Decode(nrcaSigner.Key)
+	assert.NotNil(t, keyBlock)
+	assert.True(t, pkcs8.IsEncryptedPEMBlock(keyBlock))
 
 	// Ensure that we're decrypting the Key bytes out of NewRoot if there
 	// is a passphrase set as an env Var
@@ -1334,7 +1336,9 @@ func TestNewRootCAWithPassphrase(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, newRootCA, anotherNewRootCA)
 	assert.NotContains(t, string(rcaSigner.Key), string(anrcaSigner.Key))
-	assert.Contains(t, string(anrcaSigner.Key), "Proc-Type: 4,ENCRYPTED")
+	keyBlock, _ = pem.Decode(anrcaSigner.Key)
+	assert.NotNil(t, keyBlock)
+	assert.True(t, pkcs8.IsEncryptedPEMBlock(keyBlock))
 
 	// Ensure that we cant decrypt the Key bytes out of NewRoot if there
 	// is a wrong passphrase set as an env Var
@@ -1355,7 +1359,9 @@ func TestNewRootCAWithPassphrase(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, newRootCA, anotherNewRootCA)
 	assert.NotContains(t, string(rcaSigner.Key), string(anrcaSigner.Key))
-	assert.Contains(t, string(anrcaSigner.Key), "Proc-Type: 4,ENCRYPTED")
+	keyBlock, _ = pem.Decode(anrcaSigner.Key)
+	assert.NotNil(t, keyBlock)
+	assert.True(t, pkcs8.IsEncryptedPEMBlock(keyBlock))
 }
 
 type certTestCase struct {
