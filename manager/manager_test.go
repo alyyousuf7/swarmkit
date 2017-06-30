@@ -19,7 +19,7 @@ import (
 
 	"github.com/docker/swarmkit/api"
 	"github.com/docker/swarmkit/ca"
-	"github.com/docker/swarmkit/ca/pkcs8"
+	"github.com/docker/swarmkit/ca/keyutils"
 	cautils "github.com/docker/swarmkit/ca/testutils"
 	"github.com/docker/swarmkit/manager/dispatcher"
 	"github.com/docker/swarmkit/manager/encryption"
@@ -291,7 +291,7 @@ func TestManagerLockUnlock(t *testing.T) {
 	require.NoError(t, err)
 	keyBlock, _ := pem.Decode(key)
 	require.NotNil(t, keyBlock)
-	require.False(t, pkcs8.IsEncryptedPEMBlock(keyBlock))
+	require.False(t, keyutils.IsEncryptedPEMBlock(keyBlock))
 	require.Len(t, keyBlock.Headers, 2)
 	currentDEK, err := decodePEMHeaderValue(keyBlock.Headers[pemHeaderRaftDEK], nil)
 	require.NoError(t, err)
@@ -338,7 +338,7 @@ func TestManagerLockUnlock(t *testing.T) {
 		keyBlock, _ = pem.Decode(updatedKey)
 		require.NotNil(t, keyBlock) // this should never error due to atomic writes
 
-		if !pkcs8.IsEncryptedPEMBlock(keyBlock) {
+		if !keyutils.IsEncryptedPEMBlock(keyBlock) {
 			return fmt.Errorf("Key not encrypted")
 		}
 
@@ -409,7 +409,7 @@ func TestManagerLockUnlock(t *testing.T) {
 	// but not rotated
 	keyBlock, _ = pem.Decode(unlockedKey)
 	require.NotNil(t, keyBlock)
-	require.False(t, pkcs8.IsEncryptedPEMBlock(keyBlock))
+	require.False(t, keyutils.IsEncryptedPEMBlock(keyBlock))
 
 	unencryptedDEK, err := decodePEMHeaderValue(keyBlock.Headers[pemHeaderRaftDEK], nil)
 	require.NoError(t, err)
@@ -613,10 +613,10 @@ func TestManagerEncryptsDecryptsRootKeyMaterial(t *testing.T) {
 			if keyBlock == nil {
 				return fmt.Errorf("could not pem decode root key")
 			}
-			if !pkcs8.IsEncryptedPEMBlock(keyBlock) {
+			if !keyutils.IsEncryptedPEMBlock(keyBlock) {
 				return fmt.Errorf("root key material not encrypted yet")
 			}
-			_, err = pkcs8.DecryptPEMBlock(keyBlock, []byte("kek"))
+			_, err = keyutils.DecryptPEMBlock(keyBlock, []byte("kek"))
 			return err
 		})
 	})
@@ -648,7 +648,7 @@ func TestManagerEncryptsDecryptsRootKeyMaterial(t *testing.T) {
 				if keyBlock == nil {
 					return fmt.Errorf("could not pem decode root key")
 				}
-				if pkcs8.IsEncryptedPEMBlock(keyBlock) {
+				if keyutils.IsEncryptedPEMBlock(keyBlock) {
 					return fmt.Errorf("root key material not decrypted yet")
 				}
 				return nil

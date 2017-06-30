@@ -27,6 +27,7 @@ import (
 	"github.com/docker/go-events"
 	"github.com/docker/swarmkit/api"
 	"github.com/docker/swarmkit/ca"
+	"github.com/docker/swarmkit/ca/keyutils"
 	"github.com/docker/swarmkit/ca/pkcs8"
 	cautils "github.com/docker/swarmkit/ca/testutils"
 	"github.com/docker/swarmkit/connectionbroker"
@@ -79,6 +80,31 @@ func TestMain(m *testing.M) {
 
 	cautils.External = true
 	os.Exit(m.Run())
+}
+
+func TestCreateRootCAKeyFormat(t *testing.T) {
+	// Check if the CA key generated is PKCS#1 when FIPS-mode is off
+	rootCA, err := ca.CreateRootCA("rootCA")
+	require.NoError(t, err)
+
+	s, err := rootCA.Signer()
+	require.NoError(t, err)
+	block, _ := pem.Decode(s.Key)
+	require.NotNil(t, block)
+	require.Equal(t, "EC PRIVATE KEY", block.Type)
+
+	// Check if the CA key generated is PKCS#8 when FIPS-mode is on
+	os.Setenv(keyutils.FIPSEnvVar, "1")
+	defer os.Unsetenv(keyutils.FIPSEnvVar)
+
+	rootCA, err = ca.CreateRootCA("rootCA")
+	require.NoError(t, err)
+
+	s, err = rootCA.Signer()
+	require.NoError(t, err)
+	block, _ = pem.Decode(s.Key)
+	require.NotNil(t, block)
+	require.Equal(t, "PRIVATE KEY", block.Type)
 }
 
 func TestCreateRootCASaveRootCA(t *testing.T) {
@@ -1326,7 +1352,7 @@ func TestNewRootCAWithPassphrase(t *testing.T) {
 	assert.NotContains(t, string(rcaSigner.Key), string(nrcaSigner.Key))
 	keyBlock, _ := pem.Decode(nrcaSigner.Key)
 	assert.NotNil(t, keyBlock)
-	assert.True(t, pkcs8.IsEncryptedPEMBlock(keyBlock))
+	assert.True(t, keyutils.IsEncryptedPEMBlock(keyBlock))
 
 	// Ensure that we're decrypting the Key bytes out of NewRoot if there
 	// is a passphrase set as an env Var
@@ -1338,7 +1364,7 @@ func TestNewRootCAWithPassphrase(t *testing.T) {
 	assert.NotContains(t, string(rcaSigner.Key), string(anrcaSigner.Key))
 	keyBlock, _ = pem.Decode(anrcaSigner.Key)
 	assert.NotNil(t, keyBlock)
-	assert.True(t, pkcs8.IsEncryptedPEMBlock(keyBlock))
+	assert.True(t, keyutils.IsEncryptedPEMBlock(keyBlock))
 
 	// Ensure that we cant decrypt the Key bytes out of NewRoot if there
 	// is a wrong passphrase set as an env Var
@@ -1361,7 +1387,7 @@ func TestNewRootCAWithPassphrase(t *testing.T) {
 	assert.NotContains(t, string(rcaSigner.Key), string(anrcaSigner.Key))
 	keyBlock, _ = pem.Decode(anrcaSigner.Key)
 	assert.NotNil(t, keyBlock)
-	assert.True(t, pkcs8.IsEncryptedPEMBlock(keyBlock))
+	assert.True(t, keyutils.IsEncryptedPEMBlock(keyBlock))
 }
 
 type certTestCase struct {

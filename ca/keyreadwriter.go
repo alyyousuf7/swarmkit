@@ -12,7 +12,7 @@ import (
 
 	"crypto/tls"
 
-	"github.com/docker/swarmkit/ca/pkcs8"
+	"github.com/docker/swarmkit/ca/keyutils"
 	"github.com/docker/swarmkit/ioutils"
 	"github.com/pkg/errors"
 )
@@ -316,7 +316,7 @@ func (k *KeyReadWriter) readKey() (*pem.Block, error) {
 		return nil, err
 	}
 
-	if !pkcs8.IsEncryptedPEMBlock(keyBlock) {
+	if !keyutils.IsEncryptedPEMBlock(keyBlock) {
 		return keyBlock, nil
 	}
 
@@ -326,7 +326,7 @@ func (k *KeyReadWriter) readKey() (*pem.Block, error) {
 		return nil, ErrInvalidKEK{Wrapped: x509.IncorrectPasswordError}
 	}
 
-	derBytes, err := pkcs8.DecryptPEMBlock(keyBlock, k.kekData.KEK)
+	derBytes, err := keyutils.DecryptPEMBlock(keyBlock, k.kekData.KEK)
 	if err != nil {
 		return nil, ErrInvalidKEK{Wrapped: err}
 	}
@@ -351,11 +351,11 @@ func (k *KeyReadWriter) readKey() (*pem.Block, error) {
 // writing it to disk.  If the kek is nil, writes it to disk unencrypted.
 func (k *KeyReadWriter) writeKey(keyBlock *pem.Block, kekData KEKData, pkh PEMKeyHeaders) error {
 	if kekData.KEK != nil {
-		encryptedPEMBlock, err := pkcs8.EncryptPEMBlock(keyBlock.Bytes, kekData.KEK)
+		encryptedPEMBlock, err := keyutils.EncryptPEMBlock(keyBlock.Bytes, kekData.KEK)
 		if err != nil {
 			return err
 		}
-		if !pkcs8.IsEncryptedPEMBlock(encryptedPEMBlock) {
+		if !keyutils.IsEncryptedPEMBlock(encryptedPEMBlock) {
 			return errors.New("unable to encrypt key - invalid PEM file produced")
 		}
 		keyBlock = encryptedPEMBlock

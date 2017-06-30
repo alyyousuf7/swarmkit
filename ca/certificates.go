@@ -26,6 +26,7 @@ import (
 	"github.com/cloudflare/cfssl/signer/local"
 	"github.com/docker/go-events"
 	"github.com/docker/swarmkit/api"
+	"github.com/docker/swarmkit/ca/keyutils"
 	"github.com/docker/swarmkit/ca/pkcs8"
 	"github.com/docker/swarmkit/connectionbroker"
 	"github.com/docker/swarmkit/ioutils"
@@ -656,9 +657,9 @@ func newLocalSigner(keyBytes, certBytes []byte, certExpiry time.Duration, rootPo
 	}
 
 	// Attempt to decrypt the current private-key with the passphrases provided
-	priv, err = pkcs8.ParsePrivateKeyPEMWithPassword(keyBytes, passphrase)
+	priv, err = keyutils.ParsePrivateKeyPEMWithPassword(keyBytes, passphrase)
 	if err != nil {
-		priv, err = pkcs8.ParsePrivateKeyPEMWithPassword(keyBytes, passphrasePrev)
+		priv, err = keyutils.ParsePrivateKeyPEMWithPassword(keyBytes, passphrasePrev)
 		if err != nil {
 			return nil, errors.Wrap(err, "malformed private key")
 		}
@@ -678,7 +679,7 @@ func newLocalSigner(keyBytes, certBytes []byte, certExpiry time.Duration, rootPo
 	// ensure it is encrypted, so it doesn't hit raft in plain-text
 	// we don't have to check for nil, because if we couldn't pem-decode the bytes, then parsing above would have failed
 	keyBlock, _ := pem.Decode(keyBytes)
-	if passphraseStr != "" && !pkcs8.IsEncryptedPEMBlock(keyBlock) {
+	if passphraseStr != "" && !keyutils.IsEncryptedPEMBlock(keyBlock) {
 		keyBytes, err = EncryptECPrivateKey(keyBytes, passphraseStr)
 		if err != nil {
 			return nil, errors.Wrap(err, "unable to encrypt signing CA key material")
@@ -816,9 +817,12 @@ func CreateRootCA(rootCN string) (RootCA, error) {
 		return RootCA{}, err
 	}
 
-	key, err = pkcs8.ConvertECPrivateKeyPEM(key)
-	if err != nil {
-		return RootCA{}, err
+	// Convert key to PKCS#8 in FIPS mode
+	if keyutils.FIPSEnabled() {
+		key, err = pkcs8.ConvertECPrivateKeyPEM(key)
+		if err != nil {
+			return RootCA{}, err
+		}
 	}
 
 	rootCA, err := NewRootCA(cert, cert, key, DefaultNodeCertExpiration, nil)
@@ -984,7 +988,7 @@ func EncryptECPrivateKey(key []byte, passphraseStr string) ([]byte, error) {
 		return nil, errors.New("error while decoding PEM key")
 	}
 
-	encryptedPEMBlock, err := pkcs8.EncryptPEMBlock(keyBlock.Bytes, passphrase)
+	encryptedPEMBlock, err := keyutils.EncryptPEMBlock(keyBlock.Bytes, passphrase)
 	if err != nil {
 		return nil, err
 	}
