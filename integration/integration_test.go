@@ -21,13 +21,13 @@ import (
 	events "github.com/docker/go-events"
 	"github.com/docker/swarmkit/api"
 	"github.com/docker/swarmkit/ca"
+	"github.com/docker/swarmkit/ca/keyutils"
 	cautils "github.com/docker/swarmkit/ca/testutils"
 	"github.com/docker/swarmkit/identity"
 	"github.com/docker/swarmkit/manager"
 	"github.com/docker/swarmkit/testutils"
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/require"
-	"github.com/docker/swarmkit/ca/keyutils"
 )
 
 var showTrace = flag.Bool("show-trace", false, "show stack trace after tests finish")
@@ -263,6 +263,52 @@ func TestNodeOps(t *testing.T) {
 	numManager++
 	// agents 0, managers 3
 	pollClusterReady(t, cl, numWorker, numManager)
+}
+
+func TestAutolockManagers(t *testing.T) {
+	t.Parallel()
+
+	// run this twice, once with root ca with pkcs1 key and then pkcs8 key
+	defer os.Unsetenv(keyutils.FIPSEnvVar)
+	for _, pkcs1 := range []bool{true, false} {
+		if pkcs1 {
+			os.Unsetenv(keyutils.FIPSEnvVar)
+		} else {
+			os.Setenv(keyutils.FIPSEnvVar, "1")
+		}
+
+		rootCA, err := ca.CreateRootCA("rootCN")
+		require.NoError(t, err)
+		numWorker, numManager := 1, 1
+		cl := newClusterWithRootCA(t, numWorker, numManager, &rootCA)
+		defer func() {
+			require.NoError(t, cl.Stop())
+		}()
+
+		// check that the cluster is not locked initially
+		unlockKey, err := cl.GetUnlockKey()
+		require.NoError(t, err)
+		require.Equal(t, "SWMKEY-1-", unlockKey)
+
+		// lock the cluster and make sure the unlock key is not empty
+		require.NoError(t, cl.AutolockManagers(true))
+		unlockKey, err = cl.GetUnlockKey()
+		require.NoError(t, err)
+		require.NotEqual(t, "SWMKEY-1-", unlockKey)
+
+		// rotate unlock key
+		require.NoError(t, cl.RotateUnlockKey())
+		newUnlockKey, err := cl.GetUnlockKey()
+		require.NoError(t, err)
+		require.NotEqual(t, "SWMKEY-1-", newUnlockKey)
+		require.NotEqual(t, unlockKey, newUnlockKey)
+
+		// unlock the cluster
+		require.NoError(t, cl.AutolockManagers(false))
+		unlockKey, err = cl.GetUnlockKey()
+		require.NoError(t, err)
+		require.Equal(t, "SWMKEY-1-", unlockKey)
+	}
 }
 
 func TestDemotePromote(t *testing.T) {
