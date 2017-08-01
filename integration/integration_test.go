@@ -251,6 +251,33 @@ func TestNodeOps(t *testing.T) {
 	pollClusterReady(t, cl, numWorker, numManager)
 }
 
+func TestAutolockManager(t *testing.T) {
+	t.Parallel()
+
+	numWorker, numManager := 2, 2
+	cl := newCluster(t, numWorker, numManager)
+	defer func() {
+		require.NoError(t, cl.Stop())
+	}()
+
+	// check that the cluster is not autolocked
+	unlockKey, err := cl.GetUnlockKey()
+	require.NoError(t, err)
+	require.Equal(t, "SWMKEY-1-", unlockKey)
+
+	// autolock managers
+	require.NoError(t, cl.AutolockManager(true))
+	unlockKey, err = cl.GetUnlockKey()
+	require.NoError(t, err)
+	require.NotEqual(t, "SWMKEY-1-", unlockKey)
+
+	// unlock
+	require.NoError(t, cl.AutolockManager(false))
+	unlockKey, err = cl.GetUnlockKey()
+	require.NoError(t, err)
+	require.Equal(t, "SWMKEY-1-", unlockKey)
+}
+
 func TestDemotePromote(t *testing.T) {
 	t.Parallel()
 

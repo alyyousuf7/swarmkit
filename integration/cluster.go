@@ -1,18 +1,22 @@
 package integration
 
 import (
+	"crypto/tls"
 	"fmt"
 	"math/rand"
+	"net"
 	"sync"
 	"time"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 
 	"github.com/Sirupsen/logrus"
 	"github.com/docker/swarmkit/api"
 	"github.com/docker/swarmkit/ca"
 	"github.com/docker/swarmkit/identity"
 	"github.com/docker/swarmkit/log"
+	"github.com/docker/swarmkit/manager/encryption"
 	"github.com/docker/swarmkit/node"
 	"github.com/docker/swarmkit/testutils"
 	"golang.org/x/net/context"
@@ -381,14 +385,21 @@ func (c *testCluster) StartNode(id string) error {
 }
 
 func (c *testCluster) GetClusterInfo() (*api.Cluster, error) {
-	clusterInfo, err := c.api.ListClusters(context.Background(), &api.ListClustersRequest{})
+	clusterList, err := c.api.ListClusters(context.Background(), &api.ListClustersRequest{})
 	if err != nil {
 		return nil, err
 	}
-	if len(clusterInfo.Clusters) != 1 {
-		return nil, fmt.Errorf("number of clusters in storage: %d; expected 1", len(clusterInfo.Clusters))
+	if len(clusterList.Clusters) != 1 {
+		return nil, fmt.Errorf("number of clusters in storage: %d; expected 1", len(clusterList.Clusters))
 	}
-	return clusterInfo.Clusters[0], nil
+
+	clusterInfo, err := c.api.GetCluster(context.Background(), &api.GetClusterRequest{
+		ClusterID: clusterList.Clusters[0].ID,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return clusterInfo.Cluster, nil
 }
 
 func (c *testCluster) RotateRootCA(cert, key []byte) error {
@@ -408,4 +419,63 @@ func (c *testCluster) RotateRootCA(cert, key []byte) error {
 		})
 		return err
 	}, opsTimeout)
+}
+
+func (c *testCluster) RotateUnlockKey(cert, key []byte) error {
+	// poll in case something else changes the cluster before we can update it
+	return testutils.PollFuncWithTimeout(nil, func() error {
+		clusterInfo, err := c.GetClusterInfo()
+		if err != nil {
+			return err
+		}
+		_, err = c.api.UpdateCluster(context.Background(), &api.UpdateClusterRequest{
+			ClusterID:      clusterInfo.ID,
+			Spec:           &clusterInfo.Spec,
+			ClusterVersion: &clusterInfo.Meta.Version,
+			Rotation: api.KeyRotation{
+				ManagerUnlockKey: true,
+			},
+		})
+		return err
+	}, opsTimeout)
+}
+
+func (c *testCluster) AutolockManager(autolock bool) error {
+	// poll in case something else changes the cluster before we can update it
+	return testutils.PollFuncWithTimeout(nil, func() error {
+		clusterInfo, err := c.GetClusterInfo()
+		if err != nil {
+			return err
+		}
+		newSpec := clusterInfo.Spec.Copy()
+		newSpec.EncryptionConfig.AutoLockManagers = autolock
+		_, err = c.api.UpdateCluster(context.Background(), &api.UpdateClusterRequest{
+			ClusterID:      clusterInfo.ID,
+			Spec:           newSpec,
+			ClusterVersion: &clusterInfo.Meta.Version,
+		})
+		return err
+	}, opsTimeout)
+}
+
+func (c *testCluster) GetUnlockKey() (string, error) {
+	opts := []grpc.DialOption{}
+	insecureCreds := credentials.NewTLS(&tls.Config{InsecureSkipVerify: true})
+	opts = append(opts, grpc.WithTransportCredentials(insecureCreds))
+	opts = append(opts, grpc.WithDialer(
+		func(addr string, timeout time.Duration) (net.Conn, error) {
+			return net.DialTimeout("unix", addr, timeout)
+		}))
+	conn, err := grpc.Dial(c.RandomManager().config.ListenControlAPI, opts...)
+	if err != nil {
+		return "", err
+	}
+
+	// make a request
+	resp, err := api.NewCAClient(conn).GetUnlockKey(context.Background(), &api.GetUnlockKeyRequest{})
+	if err != nil {
+		return "", err
+	}
+
+	return encryption.HumanReadableKey(resp.UnlockKey), nil
 }
