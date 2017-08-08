@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/pem"
 	"errors"
 	"net"
 	"net/url"
@@ -16,6 +17,8 @@ import (
 	"github.com/cloudflare/cfssl/helpers"
 	"github.com/docker/swarmkit/api"
 	"github.com/docker/swarmkit/ca"
+	"github.com/docker/swarmkit/ca/keyutils"
+	"github.com/docker/swarmkit/ca/pkcs8"
 	"github.com/docker/swarmkit/log"
 )
 
@@ -48,6 +51,16 @@ func newRootRotationObject(ctx context.Context, securityConfig *ca.SecurityConfi
 	if s, err := newCARootCA.Signer(); err == nil {
 		rootCert, rootKey = s.Cert, s.Key
 		newRootHasSigner = true
+
+		// if the key is not pkcs8, convert it
+		keyBlock, _ := pem.Decode(rootKey)
+		if !keyutils.IsPKCS8(keyBlock.Bytes) {
+			rootKey, err = pkcs8.ConvertECPrivateKeyPEM(rootKey)
+			if err != nil {
+				log.G(ctx).WithError(err).Error("unable to convert root signer key to pkcs8")
+				return nil, grpc.Errorf(codes.Internal, "unable to convert root signer key to pkcs8")
+			}
+		}
 	}
 
 	// we have to sign with the original signer, not whatever is in the SecurityConfig's RootCA (which may have an intermediate signer, if

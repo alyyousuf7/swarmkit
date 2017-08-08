@@ -60,12 +60,12 @@ func TestFIPSEnabled(t *testing.T) {
 
 func TestIsPKCS8(t *testing.T) {
 	// Check PKCS8 keys
-	assert.True(t, isPKCS8([]byte(decryptedPKCS8Block.Bytes)))
-	assert.True(t, isPKCS8([]byte(encryptedPKCS8Block.Bytes)))
+	assert.True(t, IsPKCS8([]byte(decryptedPKCS8Block.Bytes)))
+	assert.True(t, IsPKCS8([]byte(encryptedPKCS8Block.Bytes)))
 
 	// Check PKCS1 keys
-	assert.False(t, isPKCS8([]byte(decryptedPKCS1Block.Bytes)))
-	assert.False(t, isPKCS8([]byte(encryptedPKCS1Block.Bytes)))
+	assert.False(t, IsPKCS8([]byte(decryptedPKCS1Block.Bytes)))
+	assert.False(t, IsPKCS8([]byte(encryptedPKCS1Block.Bytes)))
 }
 
 func TestIsEncryptedPEMBlock(t *testing.T) {

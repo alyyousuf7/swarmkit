@@ -40,14 +40,14 @@ type rootCARotationTestCase struct {
 
 var initialLocalRootCA = api.RootCA{
 	CACert:     testutils.ECDSA256SHA256Cert,
-	CAKey:      testutils.ECDSA256Key,
+	CAKey:      testutils.ECDSA256PKCS8Key,
 	CACertHash: "DEADBEEF",
 	JoinTokens: api.JoinTokens{
 		Worker:  "SWMTKN-1-worker",
 		Manager: "SWMTKN-1-manager",
 	},
 }
-var rotationCert, rotationKey = testutils.ECDSACertChain[2], testutils.ECDSACertChainKeys[2]
+var rotationCert, rotationKey, rotationKeyPKCS8 = testutils.ECDSACertChain[2], testutils.ECDSACertChainKeys[2], testutils.ECDSACertChainPKCS8Keys[2]
 
 func uglifyOnePEM(pemBytes []byte) []byte {
 	pemBlock, _ := pem.Decode(pemBytes)
@@ -370,7 +370,7 @@ func runValidTestCases(t *testing.T, testcases []*rootCARotationTestCase, localR
 
 func TestValidateCAConfigValidValues(t *testing.T) {
 	t.Parallel()
-	localRootCA, err := ca.NewRootCA(testutils.ECDSA256SHA256Cert, testutils.ECDSA256SHA256Cert, testutils.ECDSA256Key,
+	localRootCA, err := ca.NewRootCA(testutils.ECDSA256SHA256Cert, testutils.ECDSA256SHA256Cert, testutils.ECDSA256PKCS8Key,
 		ca.DefaultNodeCertExpiration, nil)
 	require.NoError(t, err)
 
@@ -588,7 +588,7 @@ func TestValidateCAConfigValidValues(t *testing.T) {
 				SigningCAKey:  rotationKey,
 				ForceRotate:   5,
 			},
-			expectRootCA:         getRootCAWithRotation(expectedBaseRootCA, renewedRotationCert, rotationKey, nil),
+			expectRootCA:         getRootCAWithRotation(expectedBaseRootCA, renewedRotationCert, rotationKeyPKCS8, nil),
 			expectGeneratedCross: true,
 		},
 		{

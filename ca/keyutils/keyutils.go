@@ -26,7 +26,8 @@ func FIPSEnabled() bool {
 	return os.Getenv(FIPSEnvVar) != ""
 }
 
-func isPKCS8(derBytes []byte) bool {
+// IsPKCS8 returns true if the provided der bytes is encrypted/unencrypted PKCS#8 key
+func IsPKCS8(derBytes []byte) bool {
 	if _, err := x509.ParsePKCS8PrivateKey(derBytes); err == nil {
 		return true
 	}
@@ -46,7 +47,7 @@ func ParsePrivateKeyPEMWithPassword(pemBytes, password []byte) (crypto.Signer, e
 		return nil, errors.New("Could not parse PEM")
 	}
 
-	if isPKCS8(block.Bytes) {
+	if IsPKCS8(block.Bytes) {
 		return pkcs8.ParsePrivateKeyPEMWithPassword(pemBytes, password)
 	} else if FIPSEnabled() {
 		return nil, errFIPSUnsupportedKeyFormat
@@ -64,7 +65,7 @@ func IsEncryptedPEMBlock(block *pem.Block) bool {
 // DecryptPEMBlock requires PKCS#1 or PKCS#8 PEM Block and password to decrypt and return unencrypted der []byte
 // It returns an error in FIPS mode when PKCS#1 PEM Block is passed.
 func DecryptPEMBlock(block *pem.Block, password []byte) ([]byte, error) {
-	if isPKCS8(block.Bytes) {
+	if IsPKCS8(block.Bytes) {
 		return pkcs8.DecryptPEMBlock(block, password)
 	} else if FIPSEnabled() {
 		return nil, errFIPSUnsupportedKeyFormat
@@ -76,7 +77,7 @@ func DecryptPEMBlock(block *pem.Block, password []byte) ([]byte, error) {
 // EncryptPEMBlock takes DER-format bytes and password to return an encrypted PKCS#1 or PKCS#8 PEM-block
 // It returns an error in FIPS mode when PKCS#1 PEM bytes are passed.
 func EncryptPEMBlock(data, password []byte) (*pem.Block, error) {
-	if isPKCS8(data) {
+	if IsPKCS8(data) {
 		return pkcs8.EncryptPEMBlock(data, password)
 	} else if FIPSEnabled() {
 		return nil, errFIPSUnsupportedKeyFormat
