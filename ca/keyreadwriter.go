@@ -13,6 +13,7 @@ import (
 	"crypto/tls"
 
 	"github.com/docker/swarmkit/ca/keyutils"
+	"github.com/docker/swarmkit/ca/pkcs8"
 	"github.com/docker/swarmkit/ioutils"
 	"github.com/pkg/errors"
 )
@@ -87,13 +88,23 @@ func NewKeyReadWriter(paths CertPaths, kek []byte, headersObj PEMKeyHeaders) *Ke
 	}
 }
 
-// Migrate checks to see if a temporary key file exists.  Older versions of
+// Migrate checks to see if a temporary key file exists and/or if the key is in
+// older format.
+func (k *KeyReadWriter) Migrate() error {
+	if err := k.migrateTmpKey(); err != nil {
+		return err
+	}
+
+	return k.migrateKeyFormat()
+}
+
+// migrateTmpKey checks to see if a temporary key file exists.  Older versions of
 // swarmkit wrote temporary keys instead of temporary certificates, so
 // migrate that temporary key if it exists.  We want to write temporary certificates,
 // instead of temporary keys, because we may need to periodically re-encrypt the
 // keys and modify the headers, and it's easier to have a single canonical key
 // location than two possible key locations.
-func (k *KeyReadWriter) Migrate() error {
+func (k *KeyReadWriter) migrateTmpKey() error {
 	tmpPaths := k.genTempPaths()
 	keyBytes, err := ioutil.ReadFile(tmpPaths.Key)
 	if err != nil {
@@ -113,6 +124,64 @@ func (k *KeyReadWriter) Migrate() error {
 	}
 
 	return os.Rename(tmpPaths.Key, k.paths.Key)
+}
+
+// migrateKeyFormat checks to see if the existing key is in PKCS#1 format, then
+// convert it to PKCS#8 and make sure that the key headers are in the same state
+func (k *KeyReadWriter) migrateKeyFormat() error {
+	// see if the key is in pkcs1 format, if yes, convert it to pkcs8
+	key, err := ioutil.ReadFile(k.paths.Key)
+	if err != nil {
+		return err
+	}
+
+	keyBlock, _ := pem.Decode(key)
+	// if already in pkcs8, no migration needed
+	if keyutils.IsPKCS8(keyBlock.Bytes) {
+		return nil
+	}
+
+	// if the key is encrypted, decrypt it so it can be converted to pkcs8
+	// and remove the unwanted headers
+	keyEncrypted := keyutils.IsEncryptedPEMBlock(keyBlock)
+	if keyEncrypted {
+		keyDer, err := keyutils.DecryptPEMBlock(keyBlock, k.kekData.KEK)
+		if err != nil {
+			return ErrInvalidKEK{Wrapped: err}
+		}
+
+		keyBlock = &pem.Block{
+			Type:    "EC PRIVATE KEY",
+			Headers: keyBlock.Headers,
+			Bytes:   keyDer,
+		}
+
+		// remove the pkcs#1 encryption headers
+		delete(keyBlock.Headers, "Proc-Type")
+		delete(keyBlock.Headers, "DEK-Info")
+
+		key = pem.EncodeToMemory(keyBlock)
+	}
+
+	newUnencryptedKey, err := pkcs8.ConvertECPrivateKeyPEM(key)
+	if err != nil {
+		return err
+	}
+	newKeyBlock, _ := pem.Decode(newUnencryptedKey)
+
+	// make sure that the new key is encrypted if the older was too
+	if keyEncrypted {
+		newKeyBlock, err = pkcs8.EncryptPEMBlock(newKeyBlock.Bytes, k.kekData.KEK)
+		if err != nil {
+			return err
+		}
+	}
+
+	// copy the headers, which can be KEK version and raft DEK
+	newKeyBlock.Headers = keyBlock.Headers
+	newKey := pem.EncodeToMemory(newKeyBlock)
+
+	return ioutil.WriteFile(k.paths.Key, newKey, keyPerms)
 }
 
 // Read will read a TLS cert and key from the given paths

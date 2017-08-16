@@ -673,6 +673,9 @@ func (n *Node) loadSecurityConfig(ctx context.Context, paths *ca.SecurityConfigP
 
 	krw := ca.NewKeyReadWriter(paths.Node, n.unlockKey, &manager.RaftDEKData{})
 	if err := krw.Migrate(); err != nil {
+		if _, isInvalidKEK := errors.Cause(err).(ca.ErrInvalidKEK); isInvalidKEK {
+			return nil, nil, ErrInvalidUnlockKey
+		}
 		return nil, nil, err
 	}
 
